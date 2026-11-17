@@ -855,6 +855,19 @@ describe('stream config', () => {
     expect(normalizeStreamConfig({ theme: 'midnight' }).theme).toBe(DEFAULT_CONFIG.theme);
   });
 
+  it('normalizes feed layout and merged-view sources', () => {
+    expect(DEFAULT_CONFIG.feedView).toBe('split');
+    expect(normalizeStreamConfig({ feedView: 'merged' }).feedView).toBe('merged');
+    expect(normalizeStreamConfig({ feedView: 'grid' }).feedView).toBe('split');
+    expect(
+      normalizeStreamConfig({ mergedHidden: ['tradfi', 'signals', 'bogus', 'tradfi'] }).mergedHidden,
+    ).toEqual(['signals', 'tradfi']);
+    expect(normalizeStreamConfig({ newsGroups: ['move', 'headline', 'x'] }).newsGroups).toEqual([
+      'headline',
+      'move',
+    ]);
+  });
+
   it('normalizes optional Sub2API settings without storing a key in config', () => {
     const normalized = normalizeStreamConfig({
       sub2ApiBaseUrl: '  https://sub2api.example.com/v1  ',

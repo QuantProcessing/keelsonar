@@ -1,3 +1,10 @@
+import {
+  normalizeNewsGroups,
+  type NewsConnectionState,
+  type NewsGroup,
+  type NewsItem,
+} from './eqn';
+
 export const WIND_ORIGIN = 'https://wind.jokkimon.club';
 export const WIND_WEBSOCKET_URL = 'wss://wind.jokkimon.club/ws';
 export const WIND_FEED_ACTIONS =
@@ -106,6 +113,19 @@ export interface WindEvent {
 }
 
 export type ThemePreference = 'system' | 'light' | 'dark';
+/**
+ * split = Wind signals and eqn.news side by side (falls back to tabs when the
+ * panel is narrower than two usable columns); merged = one time-ordered list.
+ */
+export type FeedView = 'split' | 'merged';
+export type MergedSource = 'signals' | NewsGroup;
+
+const FEED_VIEWS: FeedView[] = ['split', 'merged'];
+const MERGED_SOURCES: MergedSource[] = ['signals', 'headline', 'notice', 'move', 'tradfi', 'social'];
+
+export function isFeedView(value: unknown): value is FeedView {
+  return FEED_VIEWS.includes(value as FeedView);
+}
 
 export interface StreamConfig {
   debotUrlTemplate: string;
@@ -115,6 +135,11 @@ export interface StreamConfig {
   reuseTradingTab: boolean;
   soundEnabled: boolean;
   theme: ThemePreference;
+  newsEnabled: boolean;
+  newsGroups: NewsGroup[];
+  newsSoundGroups: NewsGroup[];
+  feedView: FeedView;
+  mergedHidden: MergedSource[];
 }
 
 export type GrokChatRole = 'user' | 'assistant';
@@ -130,6 +155,8 @@ export interface GrokChatResult {
 }
 
 export interface GrokChatContext {
+  /** `news` contexts have no contract address and use a fact-check prompt. */
+  kind?: 'token' | 'news';
   eventId?: string;
   symbol?: string;
   name?: string;
@@ -161,6 +188,8 @@ export interface RuntimeSnapshot {
   config: StreamConfig;
   connection: ConnectionState;
   events: WindEvent[];
+  news: NewsItem[];
+  newsConnection: NewsConnectionState;
 }
 
 export type PanelCommand =
@@ -173,12 +202,17 @@ export type PanelCommand =
   | { type: 'trade:open'; target: TradeTarget; event: WindEvent }
   | { type: 'grok:chat'; messages: GrokChatMessage[] }
   | { type: 'grok:window:open'; context?: GrokChatContext }
+  | { type: 'monitor:window:open' }
   | { type: 'events:clear' };
 
 export type BackgroundPush =
   | { type: 'snapshot'; snapshot: RuntimeSnapshot }
   | { type: 'connection'; connection: ConnectionState }
-  | { type: 'event'; event: WindEvent };
+  | { type: 'event'; event: WindEvent; alert: boolean }
+  | { type: 'news'; news: NewsItem[] }
+  | { type: 'news-connection'; connection: NewsConnectionState }
+  /** `alert` is set on exactly one open view so sounds never double up. */
+  | { type: 'news-fresh'; items: NewsItem[]; alert: boolean };
 
 export const DEFAULT_CONFIG: StreamConfig = {
   debotUrlTemplate: 'https://debot.ai/token/{chain}/{address}',
@@ -188,6 +222,12 @@ export const DEFAULT_CONFIG: StreamConfig = {
   reuseTradingTab: true,
   soundEnabled: true,
   theme: 'system',
+  newsEnabled: true,
+  newsGroups: ['headline', 'notice', 'move', 'tradfi', 'social'],
+  newsSoundGroups: ['headline', 'notice'],
+  feedView: 'split',
+  // Price/OI monitors post dozens of items an hour and would bury Wind signals.
+  mergedHidden: ['move'],
 };
 
 export const EMPTY_CONNECTION: ConnectionState = {
@@ -210,6 +250,7 @@ export const STORAGE_KEYS = {
   events: 'windStreamEvents',
   grokApiKey: 'grokApiKey',
   grokConversations: 'grokConversations',
+  news: 'eqnNewsItems',
 } as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -695,6 +736,14 @@ export function normalizeStreamConfig(value: unknown): StreamConfig {
       value.theme === 'light' || value.theme === 'dark' || value.theme === 'system'
         ? value.theme
         : DEFAULT_CONFIG.theme,
+    newsEnabled:
+      typeof value.newsEnabled === 'boolean' ? value.newsEnabled : DEFAULT_CONFIG.newsEnabled,
+    newsGroups: normalizeNewsGroups(value.newsGroups, DEFAULT_CONFIG.newsGroups),
+    newsSoundGroups: normalizeNewsGroups(value.newsSoundGroups, DEFAULT_CONFIG.newsSoundGroups),
+    feedView: isFeedView(value.feedView) ? value.feedView : DEFAULT_CONFIG.feedView,
+    mergedHidden: Array.isArray(value.mergedHidden)
+      ? MERGED_SOURCES.filter((source) => (value.mergedHidden as unknown[]).includes(source))
+      : DEFAULT_CONFIG.mergedHidden,
   };
 }
 

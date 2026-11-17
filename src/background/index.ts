@@ -24,6 +24,8 @@ import {
   sub2ApiPermissionPattern,
 } from '../shared/grok';
 import { buildTargetTradeUrl, hostForTradeUrl } from '../shared/trade-route';
+import { newsChannelMeta, type NewsItem } from '../shared/eqn';
+import { EqnNewsFeed } from './eqn-feed';
 
 const EVENT_LIMIT = 200;
 const RELAY_HEARTBEAT_TIMEOUT_MS = 20_000;
@@ -120,8 +122,38 @@ function patchConnection(patch: Partial<ConnectionState>): void {
   setConnection({ ...connection, ...patch });
 }
 
+/**
+ * Exactly one open view (the most recently opened) plays the news sound, so a
+ * side panel plus a monitor window never beep twice for the same item.
+ */
+function freshNewsAlert(items: NewsItem[]): void {
+  const target = [...panelPorts].at(-1);
+  for (const port of panelPorts) {
+    try {
+      port.postMessage({
+        type: 'news-fresh',
+        items,
+        alert: port === target,
+      } satisfies BackgroundPush);
+    } catch {
+      panelPorts.delete(port);
+    }
+  }
+  console.info('[Wind Signal] 方程式快讯送入侧栏', {
+    count: items.length,
+    channels: [...new Set(items.map((item) => newsChannelMeta(item.channel).label))],
+  });
+}
+
+const newsFeed = new EqnNewsFeed({
+  storageKey: STORAGE_KEYS.news,
+  onItems: (news) => broadcast({ type: 'news', news }),
+  onConnection: (newsConnection) => broadcast({ type: 'news-connection', connection: newsConnection }),
+  onFresh: freshNewsAlert,
+});
+
 function snapshot(): RuntimeSnapshot {
-  return { config, connection, events };
+  return { config, connection, events, ...newsFeed.snapshot() };
 }
 
 function clearRelayTimers(): void {
@@ -145,7 +177,14 @@ function addEvent(event: WindEvent): void {
     lastEventAt: event.receivedAt,
     message: '已收到听风实时事件',
   });
-  broadcast({ type: 'event', event });
+  const alertTarget = [...panelPorts].at(-1);
+  for (const port of panelPorts) {
+    try {
+      port.postMessage({ type: 'event', event, alert: port === alertTarget } satisfies BackgroundPush);
+    } catch {
+      panelPorts.delete(port);
+    }
+  }
   broadcast({ type: 'snapshot', snapshot: snapshot() });
 }
 
@@ -557,13 +596,14 @@ async function saveConfig(nextConfig: StreamConfig): Promise<RuntimeSnapshot> {
   if (normalized.sub2ApiBaseUrl) buildSub2ApiResponsesUrl(normalized.sub2ApiBaseUrl);
   config = normalized;
   await chrome.storage.local.set({ [STORAGE_KEYS.config]: config });
+  newsFeed.setEnabled(config.newsEnabled);
   broadcast({ type: 'snapshot', snapshot: snapshot() });
   return snapshot();
 }
 
-function assertGrokUiSender(sender: chrome.runtime.MessageSender): void {
+function assertExtensionUiSender(sender: chrome.runtime.MessageSender): void {
   if (sender.id !== chrome.runtime.id || !sender.url) {
-    throw new Error('Grok 对话只能从扩展界面发起');
+    throw new Error('该操作只能从扩展界面发起');
   }
   const senderUrl = new URL(sender.url);
   const extensionOrigin = new URL(chrome.runtime.getURL('/')).origin;
@@ -571,7 +611,7 @@ function assertGrokUiSender(sender: chrome.runtime.MessageSender): void {
     senderUrl.origin !== extensionOrigin ||
     (senderUrl.pathname !== '/sidepanel.html' && senderUrl.pathname !== '/chat.html')
   ) {
-    throw new Error('Grok 对话只能从扩展界面发起');
+    throw new Error('该操作只能从扩展界面发起');
   }
 }
 
@@ -693,6 +733,25 @@ async function openGrokWindow(
   return { opened: true, reused: false };
 }
 
+async function openMonitorWindow(): Promise<{ opened: true; reused: boolean }> {
+  const url = chrome.runtime.getURL('sidepanel.html?window=1');
+  const tabs = await chrome.tabs.query({});
+  const existing = tabs
+    .filter((tab) => tab.url === url)
+    .sort((left, right) => (right.lastAccessed ?? 0) - (left.lastAccessed ?? 0))[0];
+  if (existing?.id != null) {
+    await chrome.tabs.update(existing.id, { active: true });
+    if (existing.windowId != null) {
+      await chrome.windows.update(existing.windowId, { focused: true });
+    }
+    return { opened: true, reused: true };
+  }
+
+  // Wide enough for the side-by-side layout (two 520px columns plus chrome).
+  await chrome.windows.create({ url, type: 'popup', width: 1180, height: 920, focused: true });
+  return { opened: true, reused: false };
+}
+
 async function openTrade(
   target: TradeTarget,
   event: WindEvent,
@@ -749,6 +808,7 @@ async function hydrate(): Promise<void> {
   const [local, session] = await Promise.all([
     chrome.storage.local.get(STORAGE_KEYS.config),
     chrome.storage.session.get(STORAGE_KEYS.events),
+    newsFeed.hydrate(),
   ]);
   config = normalizeStreamConfig(local[STORAGE_KEYS.config]);
   if (Array.isArray(session[STORAGE_KEYS.events])) {
@@ -757,6 +817,7 @@ async function hydrate(): Promise<void> {
       .filter((item: WindEvent | null): item is WindEvent => Boolean(item))
       .slice(0, EVENT_LIMIT);
   }
+  newsFeed.setEnabled(config.newsEnabled);
   await connectStream();
 }
 
@@ -765,10 +826,17 @@ const ready = hydrate();
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'wind-sidepanel') return;
   panelPorts.add(port);
-  void ready.then(() =>
-    port.postMessage({ type: 'snapshot', snapshot: snapshot() } satisfies BackgroundPush),
-  );
-  port.onDisconnect.addListener(() => panelPorts.delete(port));
+  // Views send periodic keepalive messages; receiving them is enough to keep
+  // the service worker (and the eqn.news poller) running while a view is open.
+  port.onMessage.addListener(() => undefined);
+  void ready.then(() => {
+    newsFeed.setViewers(panelPorts.size);
+    port.postMessage({ type: 'snapshot', snapshot: snapshot() } satisfies BackgroundPush);
+  });
+  port.onDisconnect.addListener(() => {
+    panelPorts.delete(port);
+    newsFeed.setViewers(panelPorts.size);
+  });
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -814,11 +882,14 @@ chrome.runtime.onMessage.addListener(
           case 'trade:open':
             return openTrade(command.target, command.event);
           case 'grok:chat':
-            assertGrokUiSender(sender);
+            assertExtensionUiSender(sender);
             return chatWithGrok(command.messages);
           case 'grok:window:open':
-            assertGrokUiSender(sender);
+            assertExtensionUiSender(sender);
             return openGrokWindow(command.context);
+          case 'monitor:window:open':
+            assertExtensionUiSender(sender);
+            return openMonitorWindow();
           case 'events:clear':
             events = [];
             persistEvents();

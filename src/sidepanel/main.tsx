@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import '@fontsource-variable/fira-code';
 import '@fontsource-variable/noto-sans-sc';
 import {
+  AppWindow,
   ArrowLeft,
   BadgeCheck,
   Bell,
@@ -11,6 +12,7 @@ import {
   Check,
   Clipboard,
   Coins,
+  Columns2,
   ExternalLink,
   Monitor,
   Moon,
@@ -20,6 +22,7 @@ import {
   Radio,
   RefreshCw,
   Repeat2,
+  Rows3,
   Reply,
   Settings2,
   ShieldCheck,
@@ -38,7 +41,9 @@ import {
   type BackgroundPush,
   type ConnectionPhase,
   type ConsensusRef,
+  type FeedView,
   type GrokChatContext,
+  type MergedSource,
   type RuntimeSnapshot,
   type SessionState,
   type StreamConfig,
@@ -51,6 +56,31 @@ import {
 import { sub2ApiPermissionPattern } from '../shared/grok';
 import { operationPresentation } from '../shared/operation';
 import { GrokWorkspace } from '../grok/GrokWorkspace';
+import {
+  EMPTY_NEWS_CONNECTION,
+  newsChannelMeta,
+  parseNewsItem,
+  type NewsConnectionState,
+  type NewsGroup,
+  type NewsItem,
+} from '../shared/eqn';
+import { EQN_SAMPLE_ITEMS } from '../shared/eqn.fixture';
+import { clockTime, formatPriceUsd, formatUsd, relativeTime } from './format';
+import {
+  ColumnHeader,
+  MergedFilters,
+  ViewBar,
+  NewsCard,
+  NewsEmpty,
+  NewsFilters,
+  NewsSettingsSection,
+  SPLIT_MIN_WIDTH,
+  feedLayout,
+  newsGrokContext,
+  type FeedTab,
+  type NewsFilter,
+  type ViewChoice,
+} from './NewsFeed';
 import './styles.css';
 
 const isExtension = typeof chrome !== 'undefined' && Boolean(chrome.runtime?.id);
@@ -198,8 +228,56 @@ const DEMO_EVENTS: WindEvent[] = [
   },
 ];
 
+/**
+ * Local preview only: real eqn.news items re-stamped so the newest sits a few
+ * seconds before page load while keeping the original spacing between items.
+ */
+function demoNews(): NewsItem[] {
+  const parsed = EQN_SAMPLE_ITEMS.map((raw) => parseNewsItem(raw, new Date(now), { historical: true }))
+    .filter((item): item is NewsItem => Boolean(item));
+  const latest = Math.max(...parsed.map((item) => Date.parse(item.publishedAt)));
+  const offsets = [6_000, 41_000, 3 * 60_000, 9 * 60_000, 22 * 60_000, 48 * 60_000];
+  return parsed
+    .sort((left, right) => Date.parse(right.publishedAt) - Date.parse(left.publishedAt))
+    .map((item, index) => {
+      const shifted =
+        index < offsets.length
+          ? now - offsets[index]
+          : now - offsets[offsets.length - 1] - (latest - Date.parse(item.publishedAt)) / 6;
+      const publishedAt = new Date(shifted).toISOString();
+      return {
+        ...item,
+        publishedAt,
+        receivedAt: new Date(shifted + 820 + index * 37).toISOString(),
+      };
+    });
+}
+
+const DEMO_NEWS_CONNECTION: NewsConnectionState = {
+  phase: 'live',
+  lastPollAt: new Date(now - 600).toISOString(),
+  lastItemAt: new Date(now - 6_000).toISOString(),
+  failures: 0,
+  retryAt: null,
+};
+
+type MergedEntry =
+  | { kind: 'signal'; at: number; event: WindEvent }
+  | { kind: 'news'; at: number; item: NewsItem };
+
+const MERGED_LIMIT = 240;
+const NEWS_GROUP_KEYS: NewsGroup[] = ['headline', 'notice', 'move', 'tradfi', 'social'];
+
+const PAGE_PARAMS = new URLSearchParams(window.location.search);
+const IS_MONITOR_WINDOW = PAGE_PARAMS.get('window') === '1';
+
 const DEMO_SNAPSHOT: RuntimeSnapshot = {
-  config: DEFAULT_CONFIG,
+  config: {
+    ...DEFAULT_CONFIG,
+    feedView: PAGE_PARAMS.get('layout') === 'merged' ? 'merged' : DEFAULT_CONFIG.feedView,
+  },
+  news: demoNews(),
+  newsConnection: DEMO_NEWS_CONNECTION,
   connection: {
     phase: 'live',
     session: 'authenticated',
@@ -240,6 +318,21 @@ const FILTERS: Array<{ value: SourceFilter; label: string }> = [
   { value: 'pump', label: 'Pump' },
   { value: 'chain', label: '链上' },
 ];
+
+const LAYOUT_OPTIONS = [
+  { value: 'split', label: '分栏并排', Icon: Columns2 },
+  { value: 'merged', label: '合并为一列', Icon: Rows3 },
+] satisfies Array<{ value: FeedView; label: string; Icon: typeof Columns2 }>;
+
+function useViewportWidth(): number {
+  const [width, setWidth] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const sync = () => setWidth(window.innerWidth);
+    window.addEventListener('resize', sync);
+    return () => window.removeEventListener('resize', sync);
+  }, []);
+  return width;
+}
 
 const THEME_OPTIONS = [
   { value: 'system', label: '跟随系统', Icon: Monitor },
@@ -304,14 +397,6 @@ function compactAddress(value: string): string {
   return `${value.slice(0, 9)}…${value.slice(-6)}`;
 }
 
-function formatUsd(value: number): string {
-  const amount = Math.max(0, value);
-  if (amount >= 1_000_000_000) return `$${(amount / 1_000_000_000).toFixed(1)}B`;
-  if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`;
-  if (amount >= 1_000) return `$${(amount / 1_000).toFixed(1)}K`;
-  return `$${Math.round(amount).toLocaleString('en-US')}`;
-}
-
 function formatTradeUsd(value: number): string {
   const amount = Math.max(0, value);
   if (amount >= 1_000) return formatUsd(amount);
@@ -327,16 +412,6 @@ function formatCompactNumber(value: number): string {
   if (amount >= 1_000) return `${(amount / 1_000).toFixed(1)}K`;
   if (amount >= 10) return Math.round(amount).toLocaleString('en-US');
   return amount.toFixed(2).replace(/\.?0+$/, '');
-}
-
-function formatPriceUsd(value: number): string {
-  const price = Math.max(0, value);
-  if (price === 0) return '$0';
-  if (price >= 1) {
-    return `$${price.toLocaleString('en-US', { maximumFractionDigits: 4 })}`;
-  }
-  const decimals = Math.min(10, Math.max(4, Math.ceil(-Math.log10(price)) + 3));
-  return `$${price.toFixed(decimals).replace(/\.?0+$/, '')}`;
 }
 
 function isTradeEvent(event: WindEvent): boolean {
@@ -361,30 +436,10 @@ function chainPresentation(chain: string): { label: string; tone: string } {
   return { label: chain || '未知链', tone: 'other' };
 }
 
-function relativeTime(value: string, current: number): string {
-  const seconds = Math.max(0, Math.floor((current - Date.parse(value)) / 1_000));
-  if (seconds < 8) return '刚刚';
-  if (seconds < 60) return `${seconds} 秒前`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes} 分钟前`;
-  return `${Math.floor(minutes / 60)} 小时前`;
-}
-
 function eventLag(event: WindEvent): string {
   const value = Date.parse(event.receivedAt) - Date.parse(event.occurredAt);
   if (!Number.isFinite(value) || value < 0) return '延迟未知';
   return value >= 1_000 ? `上游 ${(value / 1_000).toFixed(1)}s` : `上游 ${value}ms`;
-}
-
-function clockTime(value: string): string {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return '--:--:--';
-  return new Intl.DateTimeFormat('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).format(date);
 }
 
 async function sendCommand<T>(message: unknown): Promise<T> {
@@ -394,7 +449,18 @@ async function sendCommand<T>(message: unknown): Promise<T> {
   return response.result;
 }
 
-function playAlert(): void {
+let lastNewsAlertAt = 0;
+
+/**
+ * Wind signals keep the original rising square chirp; eqn.news uses a softer,
+ * lower sine ping so the two feeds are distinguishable without looking.
+ */
+function playAlert(kind: 'signal' | 'news'): void {
+  // A backfill or burst can deliver several news batches back to back.
+  if (kind === 'news') {
+    if (Date.now() - lastNewsAlertAt < 1_500) return;
+    lastNewsAlertAt = Date.now();
+  }
   const AudioContextClass =
     window.AudioContext ??
     (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -402,11 +468,12 @@ function playAlert(): void {
   const context = new AudioContextClass();
   const oscillator = context.createOscillator();
   const gain = context.createGain();
-  oscillator.type = 'square';
-  oscillator.frequency.setValueAtTime(620, context.currentTime);
-  oscillator.frequency.exponentialRampToValueAtTime(880, context.currentTime + 0.09);
+  const [from, to, peak] = kind === 'news' ? [520, 440, 0.1] : [620, 880, 0.12];
+  oscillator.type = kind === 'news' ? 'sine' : 'square';
+  oscillator.frequency.setValueAtTime(from, context.currentTime);
+  oscillator.frequency.exponentialRampToValueAtTime(to, context.currentTime + 0.09);
   gain.gain.setValueAtTime(0.0001, context.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.12, context.currentTime + 0.012);
+  gain.gain.exponentialRampToValueAtTime(peak, context.currentTime + 0.012);
   gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.16);
   oscillator.connect(gain);
   gain.connect(context.destination);
@@ -976,7 +1043,32 @@ function SettingsView({
             ))}
           </div>
           <p className="theme-help">跟随系统会随设备外观自动切换；深色主题适合低光盯盘。</p>
+
+          <h3 className="settings-subhead">信息流布局</h3>
+          <div className="theme-options layout-options" role="group" aria-label="信息流布局">
+            {LAYOUT_OPTIONS.map(({ value, label, Icon }) => (
+              <button
+                key={value}
+                type="button"
+                className={draft.feedView === value ? 'is-active' : ''}
+                aria-pressed={draft.feedView === value}
+                onClick={() => setDraft((current) => ({ ...current, feedView: value }))}
+              >
+                <Icon size={15} aria-hidden="true" />
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+          <p className="theme-help">
+            分栏需要至少 {SPLIT_MIN_WIDTH}px 宽：侧栏拖宽后自动并排，较窄时改为标签页切换，也可以从页脚打开分栏窗口。合并视图按时间交织两路消息，默认不含异动类快讯。
+          </p>
         </section>
+
+        <NewsSettingsSection
+          draft={draft}
+          connection={snapshot.newsConnection}
+          onChange={setDraft}
+        />
 
         <section className="settings-section">
           <h2>Grok 叙事调查</h2>
@@ -1133,10 +1225,23 @@ function App() {
   const [view, setView] = useState<PanelView>('stream');
   const [snapshot, setSnapshot] = useState<RuntimeSnapshot>(
     isExtension
-      ? { config: DEFAULT_CONFIG, connection: EMPTY_CONNECTION, events: [] }
+      ? {
+          config: DEFAULT_CONFIG,
+          connection: EMPTY_CONNECTION,
+          events: [],
+          news: [],
+          newsConnection: EMPTY_NEWS_CONNECTION,
+        }
       : DEMO_SNAPSHOT,
   );
   const [filter, setFilter] = useState<SourceFilter>('all');
+  const [tab, setTab] = useState<FeedTab>(() =>
+    new URLSearchParams(window.location.search).get('tab') === 'news' ? 'news' : 'signals',
+  );
+  const [newsFilter, setNewsFilter] = useState<NewsFilter>('all');
+  const [newsSeenAt, setNewsSeenAt] = useState(() =>
+    isExtension ? Date.now() : Date.now() - 50_000,
+  );
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [busyTrade, setBusyTrade] = useState<{
     eventId: string;
@@ -1145,32 +1250,57 @@ function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [liveAnnouncement, setLiveAnnouncement] = useState('');
   const [themePreview, setThemePreview] = useState<ThemePreference | null>(null);
-  const [grokEvent, setGrokEvent] = useState<WindEvent | null>(null);
+  const [grokContext, setGrokContext] = useState<GrokChatContext | null>(null);
   const previousEventId = useRef<string | null>(snapshot.events[0]?.id ?? null);
   const resolvedTheme = useResolvedTheme(themePreview ?? snapshot.config.theme);
+  const viewportWidth = useViewportWidth();
 
   useEffect(() => {
     const timer = window.setInterval(() => setCurrentTime(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, []);
 
+  // The port stays open for the panel's lifetime: the background counts open
+  // ports to decide whether eqn.news should be polled at all.
+  const configRef = useRef(snapshot.config);
+  configRef.current = snapshot.config;
+
   useEffect(() => {
     if (!isExtension) return;
-    const port = chrome.runtime.connect({ name: 'wind-sidepanel' });
+    let port: chrome.runtime.Port | null = null;
+    let reconnectTimer: number | undefined;
+    let disposed = false;
     const handleMessage = (message: BackgroundPush) => {
+      const config = configRef.current;
       if (message.type === 'snapshot') {
         setSnapshot(message.snapshot);
         previousEventId.current = message.snapshot.events[0]?.id ?? null;
       } else if (message.type === 'connection') {
         setSnapshot((current) => ({ ...current, connection: message.connection }));
+      } else if (message.type === 'news') {
+        setSnapshot((current) => ({ ...current, news: message.news }));
+      } else if (message.type === 'news-connection') {
+        setSnapshot((current) => ({ ...current, newsConnection: message.connection }));
+      } else if (message.type === 'news-fresh') {
+        const audible = message.items.filter(
+          (item) =>
+            config.newsGroups.includes(item.group) && config.newsSoundGroups.includes(item.group),
+        );
+        if (message.alert && config.soundEnabled && audible.length) playAlert('news');
+        if (audible.length) {
+          const latest = audible[0];
+          setLiveAnnouncement(
+            `新快讯，${newsChannelMeta(latest.channel).label}：${latest.title}${audible.length > 1 ? `，另有 ${audible.length - 1} 条` : ''}`,
+          );
+        }
       } else if (message.type === 'event') {
         const isNewEvent = previousEventId.current !== message.event.id;
         setSnapshot((current) => ({
           ...current,
           events: [message.event, ...current.events.filter((item) => item.id !== message.event.id)],
         }));
-        if (previousEventId.current && isNewEvent) {
-          if (snapshot.config.soundEnabled) playAlert();
+        if (previousEventId.current && isNewEvent && message.alert && config.soundEnabled) {
+          playAlert('signal');
         }
         if (isNewEvent) {
           setLiveAnnouncement(
@@ -1180,12 +1310,42 @@ function App() {
         previousEventId.current = message.event.id;
       }
     };
-    port.onMessage.addListener(handleMessage);
-    return () => {
-      port.onMessage.removeListener(handleMessage);
-      port.disconnect();
+
+    // If Chrome restarts the service worker the port drops; reconnect so the
+    // background re-counts this view and resumes eqn.news polling.
+    const connect = () => {
+      if (disposed) return;
+      try {
+        port = chrome.runtime.connect({ name: 'wind-sidepanel' });
+      } catch {
+        reconnectTimer = window.setTimeout(connect, 2_000);
+        return;
+      }
+      port.onMessage.addListener(handleMessage);
+      port.onDisconnect.addListener(() => {
+        port = null;
+        if (!disposed) reconnectTimer = window.setTimeout(connect, 1_000);
+      });
     };
-  }, [snapshot.config.soundEnabled]);
+    connect();
+
+    // Port messages keep the MV3 service worker alive while a view is open.
+    const keepAlive = window.setInterval(() => {
+      try {
+        port?.postMessage({ type: 'keepalive' });
+      } catch {
+        // onDisconnect handles the reconnect.
+      }
+    }, 20_000);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(keepAlive);
+      window.clearTimeout(reconnectTimer);
+      port?.onMessage.removeListener(handleMessage);
+      port?.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     if (!notice) return;
@@ -1200,6 +1360,108 @@ function App() {
         : snapshot.events.filter((event) => event.source === filter),
     [filter, snapshot.events],
   );
+
+  const subscribedNews = useMemo(
+    () => snapshot.news.filter((item) => snapshot.config.newsGroups.includes(item.group)),
+    [snapshot.config.newsGroups, snapshot.news],
+  );
+  const visibleNews = useMemo(
+    () =>
+      newsFilter === 'all'
+        ? subscribedNews
+        : subscribedNews.filter((item) => item.group === newsFilter),
+    [newsFilter, subscribedNews],
+  );
+  const newsUnread = useMemo(
+    () => subscribedNews.filter((item) => Date.parse(item.receivedAt) > newsSeenAt).length,
+    [newsSeenAt, subscribedNews],
+  );
+
+  const changeTab = (next: FeedTab) => {
+    if (tab === 'news' || next === 'news') setNewsSeenAt(Date.now());
+    setTab(next);
+  };
+
+  const mergedItems = useMemo(() => {
+    const hidden = new Set<MergedSource>(snapshot.config.mergedHidden);
+    const entries: MergedEntry[] = [
+      ...(hidden.has('signals') ? [] : snapshot.events).map(
+        (event): MergedEntry => ({ kind: 'signal', at: Date.parse(event.occurredAt), event }),
+      ),
+      ...(snapshot.config.newsEnabled ? subscribedNews : [])
+        .filter((item) => !hidden.has(item.group))
+        .map((item): MergedEntry => ({ kind: 'news', at: Date.parse(item.publishedAt), item })),
+    ];
+    return entries.sort((left, right) => right.at - left.at).slice(0, MERGED_LIMIT);
+  }, [snapshot.config.mergedHidden, snapshot.config.newsEnabled, snapshot.events, subscribedNews]);
+
+  const mergedCounts = useMemo(() => {
+    const counts: Record<MergedSource, number> = {
+      signals: snapshot.events.length,
+      headline: 0,
+      notice: 0,
+      move: 0,
+      tradfi: 0,
+      social: 0,
+    };
+    for (const item of subscribedNews) counts[item.group] += 1;
+    return counts;
+  }, [snapshot.events.length, subscribedNews]);
+
+  const saveConfigPatch = async (patch: Partial<StreamConfig>) => {
+    const previous = snapshot;
+    const nextConfig: StreamConfig = { ...snapshot.config, ...patch };
+    setSnapshot((current) => ({ ...current, config: nextConfig }));
+    if (!isExtension) return;
+    try {
+      const next = await sendCommand<RuntimeSnapshot>({ type: 'config:save', config: nextConfig });
+      setSnapshot(next);
+    } catch (cause) {
+      setSnapshot(previous);
+      setNotice(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  const changeFeedView = async (next: FeedView) => {
+    if (next === snapshot.config.feedView) return;
+    await saveConfigPatch({ feedView: next });
+  };
+
+  const toggleMergedSource = async (source: MergedSource) => {
+    const hidden = snapshot.config.mergedHidden;
+    await saveConfigPatch({
+      mergedHidden: hidden.includes(source)
+        ? hidden.filter((value) => value !== source)
+        : [...hidden, source],
+    });
+  };
+
+  const openMonitorWindow = async () => {
+    try {
+      if (isExtension) {
+        const result = await sendCommand<{ reused: boolean }>({ type: 'monitor:window:open' });
+        setNotice(result.reused ? '已切换到分栏窗口' : '已打开分栏窗口');
+      } else {
+        window.open('/sidepanel.html?window=1', 'wind-monitor', 'popup,width=1180,height=920');
+      }
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  const openUrl = (url: string) => {
+    if (isExtension) void chrome.tabs.create({ url });
+    else window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const copyCoin = async (coin: string) => {
+    try {
+      await navigator.clipboard.writeText(coin);
+      setNotice(`已复制 ${coin}`);
+    } catch {
+      setNotice('复制失败');
+    }
+  };
 
   const openTrade = async (event: WindEvent, target: TradeTarget) => {
     const targetLabel = TRADE_TARGET_META[target].label;
@@ -1281,45 +1543,10 @@ function App() {
     setSnapshot(next);
   };
 
-  const toggleSound = async () => {
-    const previous = snapshot;
-    const nextConfig = {
-      ...snapshot.config,
-      soundEnabled: !snapshot.config.soundEnabled,
-    };
-    setSnapshot((current) => ({ ...current, config: nextConfig }));
-    if (!isExtension) return;
-    try {
-      const next = await sendCommand<RuntimeSnapshot>({
-        type: 'config:save',
-        config: nextConfig,
-      });
-      setSnapshot(next);
-    } catch (cause) {
-      setSnapshot(previous);
-      setNotice(cause instanceof Error ? cause.message : String(cause));
-    }
-  };
+  const toggleSound = () => saveConfigPatch({ soundEnabled: !snapshot.config.soundEnabled });
 
-  const toggleTheme = async () => {
-    const previous = snapshot;
-    const nextConfig: StreamConfig = {
-      ...snapshot.config,
-      theme: resolvedTheme === 'dark' ? 'light' : 'dark',
-    };
-    setSnapshot((current) => ({ ...current, config: nextConfig }));
-    if (!isExtension) return;
-    try {
-      const next = await sendCommand<RuntimeSnapshot>({
-        type: 'config:save',
-        config: nextConfig,
-      });
-      setSnapshot(next);
-    } catch (cause) {
-      setSnapshot(previous);
-      setNotice(cause instanceof Error ? cause.message : String(cause));
-    }
-  };
+  const toggleTheme = () =>
+    saveConfigPatch({ theme: resolvedTheme === 'dark' ? 'light' : 'dark' });
 
   const closeSettings = () => {
     setThemePreview(null);
@@ -1340,11 +1567,11 @@ function App() {
     );
   }
 
-  if (view === 'grok' && grokEvent) {
+  if (view === 'grok' && grokContext) {
     return (
       <GrokWorkspace
         mode="sidepanel"
-        context={grokContextForEvent(grokEvent)}
+        context={grokContext}
         config={snapshot.config}
         onBack={() => setView('stream')}
         onOpenSettings={() => setView('settings')}
@@ -1355,9 +1582,150 @@ function App() {
 
   const live = snapshot.connection.phase === 'live';
   const needsLogin = snapshot.connection.session === 'guest';
+  const newsPhase = snapshot.config.newsEnabled ? snapshot.newsConnection.phase : 'offline';
+  const splitAvailable = viewportWidth >= SPLIT_MIN_WIDTH;
+  const layout = feedLayout(snapshot.config.feedView, splitAvailable);
+
+  const selectView = async (choice: ViewChoice) => {
+    if (choice === 'merged') {
+      await changeFeedView('merged');
+      return;
+    }
+    if (choice === 'split') {
+      await changeFeedView('split');
+      return;
+    }
+    // Narrow panel picking a single feed: remember "split" so widening the
+    // panel later shows both columns again.
+    changeTab(choice);
+    if (snapshot.config.feedView !== 'split') await changeFeedView('split');
+  };
+
+  const askGrokForEvent = (event: WindEvent) => {
+    setGrokContext(grokContextForEvent(event));
+    setView('grok');
+  };
+  const askGrokForNews = (item: NewsItem) => {
+    setGrokContext(newsGrokContext(item));
+    setView('grok');
+  };
+
+  const renderSignalCard = (event: WindEvent, featured: boolean) => (
+    <EventItem
+      key={event.id}
+      event={event}
+      featured={featured}
+      currentTime={currentTime}
+      busyTarget={busyTrade?.eventId === event.id ? busyTrade.target : undefined}
+      onTrade={(item, target) => void openTrade(item, target)}
+      onGrok={askGrokForEvent}
+      onCopy={(item) => void copyAddress(item)}
+      onSource={openSource}
+    />
+  );
+
+  const renderNewsCard = (item: NewsItem, featured: boolean) => (
+    <NewsCard
+      key={item.id}
+      item={item}
+      featured={featured}
+      currentTime={currentTime}
+      onOpen={openUrl}
+      onCopyCoin={(coin) => void copyCoin(coin)}
+      onGrok={askGrokForNews}
+    />
+  );
+
+  const signalFilters = (
+    <nav className="source-filters" aria-label="筛选预警来源">
+      {FILTERS.map((item) => (
+        <button
+          key={item.value}
+          type="button"
+          className={filter === item.value ? 'is-active' : ''}
+          aria-pressed={filter === item.value}
+          onClick={() => setFilter(item.value)}
+        >
+          {item.label}
+          <span>
+            {item.value === 'all'
+              ? snapshot.events.length
+              : snapshot.events.filter((event) => event.source === item.value).length}
+          </span>
+        </button>
+      ))}
+    </nav>
+  );
+
+  const newsFilters = (
+    <NewsFilters
+      items={subscribedNews}
+      filter={newsFilter}
+      enabledGroups={snapshot.config.newsGroups}
+      onChange={setNewsFilter}
+    />
+  );
+
+  const signalEmpty = (
+    <div className="empty-feed">
+      <Radio size={28} />
+      <strong>
+        {snapshot.connection.phase === 'connecting' ||
+        snapshot.connection.phase === 'reconnecting'
+          ? '正在连接听风'
+          : needsLogin
+            ? '等待听风登录'
+            : live
+              ? '连接成功，等待新预警'
+              : '实时流暂不可用'}
+      </strong>
+      <p>
+        {live
+          ? `协议帧 ${snapshot.connection.receivedMessages} · 事件帧 ${snapshot.connection.eventFrames} · 已入流 ${snapshot.connection.parsedEvents} · 卡片 ${snapshot.events.length}`
+          : '点击顶部连接状态可以立即重试。'}
+      </p>
+    </div>
+  );
+
+  const newsEmpty = (
+    <NewsEmpty
+      enabled={snapshot.config.newsEnabled}
+      connection={snapshot.newsConnection}
+      filtered={newsFilter !== 'all' && subscribedNews.length > 0}
+      onOpenSettings={() => setView('settings')}
+      onShowAll={() => setNewsFilter('all')}
+    />
+  );
+
+  const signalList = visibleEvents.length
+    ? visibleEvents.map((event, index) => renderSignalCard(event, index === 0))
+    : signalEmpty;
+  const newsList =
+    snapshot.config.newsEnabled && visibleNews.length
+      ? visibleNews.map((item, index) => renderNewsCard(item, index === 0))
+      : newsEmpty;
+
+  const newsStatus = !snapshot.config.newsEnabled
+    ? '未开启'
+    : snapshot.newsConnection.phase === 'live'
+      ? `同步中 · ${subscribedNews.length} 条`
+      : snapshot.newsConnection.phase === 'error'
+        ? '同步失败'
+        : '正在同步';
+  const signalStatus = `${needsLogin ? '游客模式' : phaseLabel(snapshot.connection.phase)} · ${snapshot.events.length} 条`;
+
+  const clearSignals = () => {
+    if (isExtension) {
+      void sendCommand({ type: 'events:clear' }).then(() =>
+        setSnapshot((current) => ({ ...current, events: [] })),
+      );
+    } else {
+      setSnapshot((current) => ({ ...current, events: [] }));
+    }
+  };
 
   return (
-    <main className="stream-view">
+    <main className={`stream-view layout-${layout} ${IS_MONITOR_WINDOW ? 'is-monitor-window' : ''}`}>
       <header className="console-header">
         <div className="brand">
           <span className="brand-mark"><Radio size={18} /></span>
@@ -1371,7 +1739,7 @@ function App() {
             type="button"
             className={`status-key phase-${snapshot.connection.phase}`}
             onClick={() => void toggleConnection()}
-            aria-label={live && !needsLogin ? '暂停实时流' : '连接实时流'}
+            aria-label={live && !needsLogin ? '暂停听风实时流' : '连接听风实时流'}
           >
             <span className="status-lamp" />
             <b>{needsLogin ? '游客模式' : phaseLabel(snapshot.connection.phase)}</b>
@@ -1435,90 +1803,124 @@ function App() {
         </div>
       )}
 
-      <nav className="source-filters" aria-label="筛选预警来源">
-        {FILTERS.map((item) => (
-          <button
-            key={item.value}
-            type="button"
-            className={filter === item.value ? 'is-active' : ''}
-            aria-pressed={filter === item.value}
-            onClick={() => setFilter(item.value)}
-          >
-            {item.label}
-            <span>
-              {item.value === 'all'
-                ? snapshot.events.length
-                : snapshot.events.filter((event) => event.source === item.value).length}
-            </span>
-          </button>
-        ))}
-      </nav>
-
       <div className="sr-only" aria-live="polite" aria-atomic="true">
         {liveAnnouncement}
       </div>
 
-      <section className="event-feed">
-        {visibleEvents.length ? (
-          visibleEvents.map((event, index) => (
-            <EventItem
-              key={event.id}
-              event={event}
-              featured={index === 0}
-              currentTime={currentTime}
-              busyTarget={busyTrade?.eventId === event.id ? busyTrade.target : undefined}
-              onTrade={(item, target) => void openTrade(item, target)}
-              onGrok={(item) => {
-                setGrokEvent(item);
-                setView('grok');
-              }}
-              onCopy={(item) => void copyAddress(item)}
-              onSource={openSource}
-            />
-          ))
-        ) : (
-          <div className="empty-feed">
-            <Radio size={28} />
-            <strong>
-              {snapshot.connection.phase === 'connecting' ||
-              snapshot.connection.phase === 'reconnecting'
-                ? '正在连接听风'
-                : needsLogin
-                  ? '等待听风登录'
-                  : live
-                    ? '连接成功，等待新预警'
-                    : '实时流暂不可用'}
-            </strong>
-            <p>
-              {live
-                ? `协议帧 ${snapshot.connection.receivedMessages} · 事件帧 ${snapshot.connection.eventFrames} · 已入流 ${snapshot.connection.parsedEvents} · 卡片 ${snapshot.events.length}`
-                : '点击顶部连接状态可以立即重试。'}
-            </p>
-          </div>
-        )}
-      </section>
+      <ViewBar
+        wide={splitAvailable}
+        active={layout === 'tabs' ? tab : layout}
+        signalCount={snapshot.events.length}
+        newsCount={subscribedNews.length}
+        newsUnread={newsUnread}
+        newsPhase={newsPhase}
+        onSelect={(choice) => void selectView(choice)}
+      />
+
+      {layout === 'split' ? (
+        <div className="feed-columns">
+          <section className="feed-column" aria-label="听风信号">
+            <ColumnHeader title="听风信号" phase={snapshot.connection.phase} status={signalStatus}>
+              <button type="button" className="column-action" onClick={clearSignals}>
+                清空
+              </button>
+            </ColumnHeader>
+            {signalFilters}
+            <div className="event-feed">{signalList}</div>
+          </section>
+          <section className="feed-column" aria-label="方程式快讯">
+            <ColumnHeader title="方程式快讯" phase={newsPhase} status={newsStatus} />
+            {newsFilters}
+            <div className="event-feed">{newsList}</div>
+          </section>
+        </div>
+      ) : layout === 'merged' ? (
+        <>
+          <MergedFilters
+            hidden={snapshot.config.mergedHidden}
+            counts={mergedCounts}
+            disabledGroups={NEWS_GROUP_KEYS.filter(
+              (group) => !snapshot.config.newsEnabled || !snapshot.config.newsGroups.includes(group),
+            )}
+            onToggle={(source) => void toggleMergedSource(source)}
+          />
+          <section className="event-feed merged-feed" aria-label="合并信息流">
+            {mergedItems.length ? (
+              mergedItems.map((entry, index) =>
+                entry.kind === 'signal'
+                  ? renderSignalCard(entry.event, index === 0)
+                  : renderNewsCard(entry.item, index === 0),
+              )
+            ) : (
+              <div className="empty-feed">
+                <Rows3 size={28} />
+                <strong>合并视图暂时没有消息</strong>
+                <p>上方可以选择合并视图包含哪些来源；异动类快讯默认不并入，以免淹没听风信号。</p>
+              </div>
+            )}
+          </section>
+        </>
+      ) : (
+        <>
+          {tab === 'news' ? newsFilters : signalFilters}
+          <section
+            className="event-feed"
+            aria-label={tab === 'news' ? '方程式快讯' : '听风信号'}
+          >
+            {tab === 'news' ? newsList : signalList}
+          </section>
+        </>
+      )}
 
       <footer className="console-footer">
-        <span>
-          <span className={`footer-dot phase-${snapshot.connection.phase}`} />
-          {snapshot.events.length} 条预警
-          {snapshot.connection.latencyMs != null ? ` · ${snapshot.connection.latencyMs}ms` : ''}
-        </span>
+        {layout === 'split' ? (
+          <span>
+            <span className={`footer-dot phase-${snapshot.connection.phase}`} />
+            听风 {snapshot.events.length}
+            <span className={`footer-dot phase-${newsPhase} footer-dot-gap`} />
+            快讯 {subscribedNews.length}
+            {snapshot.connection.latencyMs != null ? ` · ${snapshot.connection.latencyMs}ms` : ''}
+          </span>
+        ) : layout === 'merged' ? (
+          <span>
+            <span className={`footer-dot phase-${snapshot.connection.phase}`} />
+            听风 {snapshot.connection.phase === 'live' ? '实时' : phaseLabel(snapshot.connection.phase)}
+            <span className={`footer-dot phase-${newsPhase} footer-dot-gap`} />
+            快讯 {newsStatus}
+          </span>
+        ) : tab === 'news' ? (
+          <span>
+            <span className={`footer-dot phase-${newsPhase}`} />
+            方程式快讯 {newsStatus}
+            {snapshot.config.newsEnabled && snapshot.newsConnection.lastPollAt
+              ? ` · ${relativeTime(snapshot.newsConnection.lastPollAt, currentTime)}`
+              : ''}
+          </span>
+        ) : (
+          <span>
+            <span className={`footer-dot phase-${snapshot.connection.phase}`} />
+            {snapshot.events.length} 条预警
+            {snapshot.connection.latencyMs != null ? ` · ${snapshot.connection.latencyMs}ms` : ''}
+          </span>
+        )}
         <div className="footer-actions">
+          {!IS_MONITOR_WINDOW && (
+            <button
+              type="button"
+              onClick={() => void openMonitorWindow()}
+              title="在独立宽窗口中分栏查看"
+            >
+              <AppWindow size={13} /> 分栏窗口
+            </button>
+          )}
           <button type="button" onClick={() => void openGrokWindow()}>
             <Bot size={13} /> AI 对话
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (isExtension) void sendCommand({ type: 'events:clear' }).then(() =>
-                setSnapshot((current) => ({ ...current, events: [] })),
-              );
-              else setSnapshot((current) => ({ ...current, events: [] }));
-            }}
-          >
-            清空
-          </button>
+          {layout === 'tabs' && tab === 'signals' && (
+            <button type="button" onClick={clearSignals}>
+              清空
+            </button>
+          )}
         </div>
       </footer>
 

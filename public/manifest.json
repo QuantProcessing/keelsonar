@@ -1,11 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Wind Signal",
-  "version": "0.4.0",
-  "description": "把听风实时预警直接路由到交易标的，减少切站和搜索时间。",
+  "version": "0.5.0",
+  "description": "把听风实时预警直接路由到交易标的，并同步方程式新闻快讯，减少切站和搜索时间。",
   "minimum_chrome_version": "116",
   "permissions": ["sidePanel", "storage", "tabs"],
-  "host_permissions": ["https://wind.jokkimon.club/*"],
+  "host_permissions": [
+    "https://wind.jokkimon.club/*",
+    "https://eqn.news/*",
+    "https://api.eqn.news/*"
+  ],
   "optional_host_permissions": ["https://*/*", "http://*/*"],
   "background": {
     "service_worker": "assets/background.js",

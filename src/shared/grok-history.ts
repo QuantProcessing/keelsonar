@@ -39,6 +39,7 @@ function isoDate(value: unknown, fallback: string): string {
 export function normalizeGrokChatContext(value: unknown): GrokChatContext | undefined {
   if (!isRecord(value)) return undefined;
   const context: GrokChatContext = {
+    kind: value.kind === 'news' || value.kind === 'token' ? value.kind : undefined,
     eventId: text(value.eventId, 180),
     symbol: text(value.symbol, 80),
     name: text(value.name, 160),
