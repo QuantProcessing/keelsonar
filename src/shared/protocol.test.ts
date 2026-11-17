@@ -855,6 +855,14 @@ describe('stream config', () => {
     expect(normalizeStreamConfig({ theme: 'midnight' }).theme).toBe(DEFAULT_CONFIG.theme);
   });
 
+  it('migrates 0.5.0 per-group news sounds into sound tiers', () => {
+    const migrated = normalizeStreamConfig({ newsSoundGroups: ['move'] });
+    expect(migrated.soundTiers).toEqual(['signal-trade', 'signal-social', 'news-minor']);
+    expect(migrated).not.toHaveProperty('newsSoundGroups');
+    expect(normalizeStreamConfig({ soundTiers: ['news-major'], newsSoundGroups: ['move'] }).soundTiers)
+      .toEqual(['news-major']);
+  });
+
   it('normalizes feed layout and merged-view sources', () => {
     expect(DEFAULT_CONFIG.feedView).toBe('split');
     expect(normalizeStreamConfig({ feedView: 'merged' }).feedView).toBe('merged');

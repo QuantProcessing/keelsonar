@@ -1,3 +1,4 @@
+import { DEFAULT_SOUND_TIERS, normalizeSoundTiers, type SoundTier } from './alert';
 import {
   normalizeNewsGroups,
   type NewsConnectionState,
@@ -137,7 +138,8 @@ export interface StreamConfig {
   theme: ThemePreference;
   newsEnabled: boolean;
   newsGroups: NewsGroup[];
-  newsSoundGroups: NewsGroup[];
+  /** Which of the four alert sounds may play; the master switch is `soundEnabled`. */
+  soundTiers: SoundTier[];
   feedView: FeedView;
   mergedHidden: MergedSource[];
 }
@@ -224,7 +226,7 @@ export const DEFAULT_CONFIG: StreamConfig = {
   theme: 'system',
   newsEnabled: true,
   newsGroups: ['headline', 'notice', 'move', 'tradfi', 'social'],
-  newsSoundGroups: ['headline', 'notice'],
+  soundTiers: DEFAULT_SOUND_TIERS,
   feedView: 'split',
   // Price/OI monitors post dozens of items an hour and would bury Wind signals.
   mergedHidden: ['move'],
@@ -739,7 +741,7 @@ export function normalizeStreamConfig(value: unknown): StreamConfig {
     newsEnabled:
       typeof value.newsEnabled === 'boolean' ? value.newsEnabled : DEFAULT_CONFIG.newsEnabled,
     newsGroups: normalizeNewsGroups(value.newsGroups, DEFAULT_CONFIG.newsGroups),
-    newsSoundGroups: normalizeNewsGroups(value.newsSoundGroups, DEFAULT_CONFIG.newsSoundGroups),
+    soundTiers: normalizeSoundTiers(value.soundTiers, value.newsSoundGroups),
     feedView: isFeedView(value.feedView) ? value.feedView : DEFAULT_CONFIG.feedView,
     mergedHidden: Array.isArray(value.mergedHidden)
       ? MERGED_SOURCES.filter((source) => (value.mergedHidden as unknown[]).includes(source))

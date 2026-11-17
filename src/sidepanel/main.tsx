@@ -66,6 +66,15 @@ import {
 } from '../shared/eqn';
 import { EQN_SAMPLE_ITEMS } from '../shared/eqn.fixture';
 import { clockTime, formatPriceUsd, formatUsd, relativeTime } from './format';
+import { SoundSettingsSection } from './SoundSettings';
+import { playAlertSound } from './sound';
+import {
+  alertTierForEvent,
+  alertTierForNews,
+  createAlertGate,
+  highestTier,
+  type SoundTier,
+} from '../shared/alert';
 import {
   ColumnHeader,
   MergedFilters,
@@ -449,37 +458,13 @@ async function sendCommand<T>(message: unknown): Promise<T> {
   return response.result;
 }
 
-let lastNewsAlertAt = 0;
+const alertGate = createAlertGate();
 
-/**
- * Wind signals keep the original rising square chirp; eqn.news uses a softer,
- * lower sine ping so the two feeds are distinguishable without looking.
- */
-function playAlert(kind: 'signal' | 'news'): void {
-  // A backfill or burst can deliver several news batches back to back.
-  if (kind === 'news') {
-    if (Date.now() - lastNewsAlertAt < 1_500) return;
-    lastNewsAlertAt = Date.now();
-  }
-  const AudioContextClass =
-    window.AudioContext ??
-    (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!AudioContextClass) return;
-  const context = new AudioContextClass();
-  const oscillator = context.createOscillator();
-  const gain = context.createGain();
-  const [from, to, peak] = kind === 'news' ? [520, 440, 0.1] : [620, 880, 0.12];
-  oscillator.type = kind === 'news' ? 'sine' : 'square';
-  oscillator.frequency.setValueAtTime(from, context.currentTime);
-  oscillator.frequency.exponentialRampToValueAtTime(to, context.currentTime + 0.09);
-  gain.gain.setValueAtTime(0.0001, context.currentTime);
-  gain.gain.exponentialRampToValueAtTime(peak, context.currentTime + 0.012);
-  gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.16);
-  oscillator.connect(gain);
-  gain.connect(context.destination);
-  oscillator.start();
-  oscillator.stop(context.currentTime + 0.17);
-  oscillator.addEventListener('ended', () => void context.close());
+/** Plays the most important allowed tier for a batch, respecting the 1.5s gate. */
+function playAlertFor(tiers: SoundTier[], config: StreamConfig): void {
+  if (!config.soundEnabled) return;
+  const tier = highestTier(tiers.filter((value) => config.soundTiers.includes(value)));
+  if (tier && alertGate(tier)) playAlertSound(tier);
 }
 
 function SourceMark({ source }: { source: WindSource }) {
@@ -1070,6 +1055,8 @@ function SettingsView({
           onChange={setDraft}
         />
 
+        <SoundSettingsSection draft={draft} onChange={setDraft} />
+
         <section className="settings-section">
           <h2>Grok 叙事调查</h2>
           <label>
@@ -1193,17 +1180,6 @@ function SettingsView({
               <small>避免每条预警都新开一个页面</small>
             </span>
           </label>
-          <label className="switch-row">
-            <input
-              type="checkbox"
-              checked={draft.soundEnabled}
-              onChange={(event) => setDraft({ ...draft, soundEnabled: event.target.checked })}
-            />
-            <span>
-              <strong>新预警提示音</strong>
-              <small>侧栏打开时播放短提示音</small>
-            </span>
-          </label>
         </section>
 
         <aside className="safety-note">
@@ -1282,11 +1258,9 @@ function App() {
       } else if (message.type === 'news-connection') {
         setSnapshot((current) => ({ ...current, newsConnection: message.connection }));
       } else if (message.type === 'news-fresh') {
-        const audible = message.items.filter(
-          (item) =>
-            config.newsGroups.includes(item.group) && config.newsSoundGroups.includes(item.group),
-        );
-        if (message.alert && config.soundEnabled && audible.length) playAlert('news');
+        const visible = message.items.filter((item) => config.newsGroups.includes(item.group));
+        if (message.alert) playAlertFor(visible.map(alertTierForNews), config);
+        const audible = visible.filter((item) => config.soundTiers.includes(alertTierForNews(item)));
         if (audible.length) {
           const latest = audible[0];
           setLiveAnnouncement(
@@ -1299,8 +1273,8 @@ function App() {
           ...current,
           events: [message.event, ...current.events.filter((item) => item.id !== message.event.id)],
         }));
-        if (previousEventId.current && isNewEvent && message.alert && config.soundEnabled) {
-          playAlert('signal');
+        if (previousEventId.current && isNewEvent && message.alert) {
+          playAlertFor([alertTierForEvent(message.event)], config);
         }
         if (isNewEvent) {
           setLiveAnnouncement(

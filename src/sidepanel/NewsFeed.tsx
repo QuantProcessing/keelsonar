@@ -1,7 +1,5 @@
 import type { ReactNode } from 'react';
 import {
-  Bell,
-  BellOff,
   Columns2,
   Rows3,
   Eye,
@@ -551,12 +549,12 @@ export function NewsSettingsSection({
   connection: NewsConnectionState;
   onChange: (next: StreamConfig) => void;
 }) {
-  const toggle = (key: 'newsGroups' | 'newsSoundGroups', group: NewsGroup) => {
-    const current = draft[key];
+  const toggle = (group: NewsGroup) => {
+    const current = draft.newsGroups;
     const next = current.includes(group)
       ? current.filter((value) => value !== group)
       : NEWS_GROUPS.filter((value) => value === group || current.includes(value));
-    onChange({ ...draft, [key]: next });
+    onChange({ ...draft, newsGroups: next });
   };
 
   return (
@@ -578,11 +576,9 @@ export function NewsSettingsSection({
         <div className="news-group-head" aria-hidden="true">
           <span>分组与频道</span>
           <span>显示</span>
-          <span>提示音</span>
         </div>
         {NEWS_GROUPS.map((group) => {
           const shown = draft.newsGroups.includes(group);
-          const sound = draft.newsSoundGroups.includes(group);
           return (
             <div className="news-group-row" key={group}>
               <span className="news-group-name">
@@ -595,25 +591,15 @@ export function NewsSettingsSection({
                 aria-pressed={shown}
                 aria-label={`${shown ? '隐藏' : '显示'}${NEWS_GROUP_META[group].label}快讯`}
                 disabled={!draft.newsEnabled}
-                onClick={() => toggle('newsGroups', group)}
+                onClick={() => toggle(group)}
               >
                 {shown ? <Eye size={14} aria-hidden="true" /> : <EyeOff size={14} aria-hidden="true" />}
-              </button>
-              <button
-                type="button"
-                className="toggle-chip"
-                aria-pressed={sound && shown}
-                aria-label={`${sound ? '关闭' : '开启'}${NEWS_GROUP_META[group].label}提示音`}
-                disabled={!draft.newsEnabled || !shown}
-                onClick={() => toggle('newsSoundGroups', group)}
-              >
-                {sound && shown ? <Bell size={14} aria-hidden="true" /> : <BellOff size={14} aria-hidden="true" />}
               </button>
             </div>
           );
         })}
       </div>
-      <p className="field-help">异动类频道每小时可达数十条，默认只显示不响铃。提示音受页头总开关控制。</p>
+      <p className="field-help">关闭的分组不显示也不响铃。各类快讯的提示音在下方“提示音”分区设置。</p>
 
       <div className="fixed-endpoint">
         <span>快讯接口 · 失败时回退官方 MCP</span>
