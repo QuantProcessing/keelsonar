@@ -317,13 +317,10 @@ textarea::placeholder {
   height: 34px;
 }
 
-/* Keel family tile: same teal and ink in both themes, like the toolbar icon. */
+/* Keel family tile (keel-brand): same teal in both themes; the figure is
+   cut out, so the header background shows through it. */
 .brand-mark-tile {
-  fill: #37d3ac;
-}
-
-.brand-mark-glyph {
-  stroke: #0e1f1a;
+  fill: #50d2c1;
 }
 
 .brand h1,

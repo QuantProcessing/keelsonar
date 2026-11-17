@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
-  <!-- 16px hint: same S, slightly larger and heavier so it survives the toolbar size. -->
-  <rect width="16" height="16" rx="3.5" fill="#37D3AC"/>
-  <path d="M11 5.3C10.4 4.4 9.3 3.8 8 3.8C6.4 3.8 5.1 4.7 5.1 6C5.1 7.4 6.4 7.6 8 7.9C9.6 8.2 10.9 8.6 10.9 10C10.9 11.3 9.6 12.2 8 12.2C6.7 12.2 5.6 11.6 5 10.7"
-        fill="none" stroke="#0E1F1A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>

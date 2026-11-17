@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "KeelSonar",
   "short_name": "KeelSonar",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "多源交易信号侧栏：听风实时预警与方程式快讯并排，一键打开交易标的。",
   "minimum_chrome_version": "116",
   "permissions": ["sidePanel", "storage", "tabs"],

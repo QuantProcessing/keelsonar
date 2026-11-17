@@ -162,7 +162,7 @@ components:
 
 ## Brand
 
-KeelSonar 属于 Keel 产品家族，图标与 KeelUni（U）、KeelCue（Q）使用同一套字母方块：圆角 14/64 的青绿方块 `#37D3AC`，深墨字形 `#0E1F1A`，字母为 S。字形是描边路径而非字体文本，保证在任何系统上外形一致；16px 使用单独的加粗版本。图标在明暗主题下保持同一配色，与浏览器工具栏中的扩展图标一致。母版位于 `brand/keelsonar-mark.svg`，16px 版本位于 `brand/keelsonar-mark-16.svg`，打包用 PNG 位于 `public/icons/`。
+KeelSonar 属于 Keel 产品家族，图标遵循 `QuantProcessing/keel-brand` 的统一规范：32 视框内 28×28 方块、圆角 8、填充 `#50d2c1`，图形以 mask 镂空，因此在任何背景上都可读；家族背景色 `#1b2429`，文字 `#f6fefd`。KeelSonar 的图形是“声呐” `((•))`：中心发射点加左右两组回波弧，下方是与 Keel 主标志、KeelUni 共用的龙骨三角。笔画宽度 3、圆头，与 KeelUni 的 U、KeelCue 的 Q 一致。16px 使用单独的简化版本（一组回波、加大中心点），避免两组弧在 16 像素内糊成一片。母版位于 `brand/keelsonar.svg`，16px 版本 `brand/keelsonar-16.svg`，256px PNG `brand/keelsonar-256.png`，打包用 PNG 位于 `public/icons/`。侧栏页头内联同一图形，填充色不随明暗主题变化。
 
 ## Overview
 

@@ -2,6 +2,8 @@
 
 Keel 产品家族的信号发现端：KeelUni 做 CEX / DEX 套利，KeelCue 做信号交易与跟单，KeelSonar 负责把多个信号源汇集到一个常驻侧栏。（0.6.0 之前名为 Wind Signal。）
 
+仓库：<https://github.com/QuantProcessing/keelsonar>（原 `wind-signal-extension`，旧地址自动跳转）。
+
 Chrome MV3 侧边栏扩展。它复用已登录听风页面的实时 WebSocket，把预警中的交易标的提取出来，并通过 deBot、GMGN 两个轻量入口打开或复用交易页；同时接入方程式新闻（eqn.news）公开快讯，可与听风信号分栏并排或合并为一列；也可以使用自己的 Sub2API Key，在侧栏或独立窗口中向 Grok 调查代币叙事或核实快讯。
 
 ## 从 Wind Signal 升级

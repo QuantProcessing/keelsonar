@@ -1,7 +1,13 @@
 {
   "name": "keelsonar-extension",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.6.1",
+  "description": "KeelSonar：多源交易信号侧栏 / Multi-source trading signal side panel for Chrome",
+  "homepage": "https://github.com/QuantProcessing/keelsonar",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/QuantProcessing/keelsonar.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
