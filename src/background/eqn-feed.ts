@@ -234,7 +234,7 @@ export class EqnNewsFeed {
     if (probePrimary) {
       try {
         const page = await fetchHeadPrimary(now);
-        if (this.usingMcp) console.info('[Wind Signal] 方程式主接口已恢复');
+        if (this.usingMcp) console.info('[KeelSonar] 方程式主接口已恢复');
         this.usingMcp = false;
         this.primaryFailures = 0;
         return { page, source: 'primary' };
@@ -242,11 +242,11 @@ export class EqnNewsFeed {
         this.primaryFailures += 1;
         this.primaryProbeAt = now.getTime() + PRIMARY_PROBE_MS;
         if (this.primaryFailures < MCP_FALLBACK_AFTER) throw error;
-        console.warn('[Wind Signal] 方程式主接口连续失败，尝试官方 MCP', { error: errorMessage(error) });
+        console.warn('[KeelSonar] 方程式主接口连续失败，尝试官方 MCP', { error: errorMessage(error) });
       }
     }
     const page = await fetchHeadMcp(now);
-    if (!this.usingMcp) console.warn('[Wind Signal] 方程式快讯改用官方 MCP 同步');
+    if (!this.usingMcp) console.warn('[KeelSonar] 方程式快讯改用官方 MCP 同步');
     this.usingMcp = true;
     return { page, source: 'mcp' };
   }
@@ -282,7 +282,7 @@ export class EqnNewsFeed {
         retryAfterMs: error instanceof HttpError ? error.retryAfter : 0,
       });
       if (this.failures === 1) {
-        console.warn('[Wind Signal] 方程式快讯同步失败', { error: errorMessage(error) });
+        console.warn('[KeelSonar] 方程式快讯同步失败', { error: errorMessage(error) });
       }
       // Like the official site: only surface trouble after 3 straight failures.
       const visible = this.failures >= MCP_FALLBACK_AFTER;
@@ -333,10 +333,10 @@ export class EqnNewsFeed {
       await this.backfill(page.nextCursor!, now, initialFill ? 1 : NEWS_GAP_PAGES);
     }
 
-    if (result.removed) console.info('[Wind Signal] 方程式撤回快讯', { removed: result.removed });
+    if (result.removed) console.info('[KeelSonar] 方程式撤回快讯', { removed: result.removed });
     if (result.fresh.length) {
       this.setConnection({ lastItemAt: result.fresh[0].publishedAt });
-      console.info('[Wind Signal] 方程式新快讯', {
+      console.info('[KeelSonar] 方程式新快讯', {
         count: result.fresh.length,
         latest: result.fresh[0].no,
       });
@@ -359,13 +359,13 @@ export class EqnNewsFeed {
         next = result.nextCursor;
         if (result.items.some((item) => held.has(item.id))) break;
       } catch (error) {
-        console.warn('[Wind Signal] 方程式快讯补漏失败', { error: errorMessage(error) });
+        console.warn('[KeelSonar] 方程式快讯补漏失败', { error: errorMessage(error) });
         break;
       }
     }
     if (!older.length) return;
     this.items = mergeNewsBackfill(this.items, older);
-    console.info('[Wind Signal] 方程式快讯补漏完成', { fetched: older.length });
+    console.info('[KeelSonar] 方程式快讯补漏完成', { fetched: older.length });
   }
 
   private setConnection(patch: Partial<NewsConnectionState>): void {

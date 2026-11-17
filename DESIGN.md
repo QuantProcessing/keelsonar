@@ -1,5 +1,5 @@
 ---
-name: "Wind Signal"
+name: "KeelSonar"
 description: "把实时预警组织成安静、可核验、可立即行动的明暗双主题信号卡片流"
 colors:
   canvas-warm: "#f5f6f2"
@@ -158,7 +158,11 @@ components:
     width: "100%"
 ---
 
-# Design System: Wind Signal
+# Design System: KeelSonar
+
+## Brand
+
+KeelSonar 属于 Keel 产品家族，图标与 KeelUni（U）、KeelCue（Q）使用同一套字母方块：圆角 14/64 的青绿方块 `#37D3AC`，深墨字形 `#0E1F1A`，字母为 S。字形是描边路径而非字体文本，保证在任何系统上外形一致；16px 使用单独的加粗版本。图标在明暗主题下保持同一配色，与浏览器工具栏中的扩展图标一致。母版位于 `brand/keelsonar-mark.svg`，16px 版本位于 `brand/keelsonar-mark-16.svg`，打包用 PNG 位于 `public/icons/`。
 
 ## Overview
 

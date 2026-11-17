@@ -1,6 +1,6 @@
 /**
  * Real `NewsOut` items captured from https://eqn.news/api/v1/news on 2026-11-17,
- * trimmed to the fields Wind Signal reads. Used by parser tests and the local
+ * trimmed to the fields KeelSonar reads. Used by parser tests and the local
  * side panel preview; the preview re-stamps `published_ts` relative to now.
  */
 export const EQN_SAMPLE_ITEMS: ReadonlyArray<Record<string, unknown>> = [

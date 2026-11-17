@@ -67,6 +67,7 @@ import {
 import { EQN_SAMPLE_ITEMS } from '../shared/eqn.fixture';
 import { clockTime, formatPriceUsd, formatUsd, relativeTime } from './format';
 import { SoundSettingsSection } from './SoundSettings';
+import { BrandMark } from './BrandMark';
 import { playAlertSound } from './sound';
 import {
   alertTierForEvent,
@@ -1702,10 +1703,10 @@ function App() {
     <main className={`stream-view layout-${layout} ${IS_MONITOR_WINDOW ? 'is-monitor-window' : ''}`}>
       <header className="console-header">
         <div className="brand">
-          <span className="brand-mark"><Radio size={18} /></span>
+          <BrandMark />
           <div>
-            <h1>Wind Signal</h1>
-            <span>{isExtension ? '预警已接入交易侧栏' : '合成事件 · 本地预览'}</span>
+            <h1>KeelSonar</h1>
+            <span>{isExtension ? '多源交易信号侧栏' : '合成事件 · 本地预览'}</span>
           </div>
         </div>
         <div className="header-actions">

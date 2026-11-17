@@ -139,7 +139,7 @@ function freshNewsAlert(items: NewsItem[]): void {
       panelPorts.delete(port);
     }
   }
-  console.info('[Wind Signal] 方程式快讯送入侧栏', {
+  console.info('[KeelSonar] 方程式快讯送入侧栏', {
     count: items.length,
     channels: [...new Set(items.map((item) => newsChannelMeta(item.channel).label))],
   });
@@ -193,11 +193,11 @@ function applyHistory(raw: string): void {
   try {
     payload = JSON.parse(raw);
   } catch {
-    console.warn('[Wind Signal] REST 历史响应不是有效 JSON');
+    console.warn('[KeelSonar] REST 历史响应不是有效 JSON');
     return;
   }
 
-  console.log('[Wind Signal] REST ← 收到历史快照', payload);
+  console.log('[KeelSonar] REST ← 收到历史快照', payload);
   const historical = parseWindHistory(payload);
   const byId = new Map(events.map((event) => [event.id, event]));
   for (const event of historical) byId.set(event.id, event);
@@ -208,7 +208,7 @@ function applyHistory(raw: string): void {
       ? `已加载 ${historical.length} 条听风历史事件，实时增量监听中`
       : '听风历史流为空，实时增量监听中',
   });
-  console.info('[Wind Signal] REST 历史加载完成', {
+  console.info('[KeelSonar] REST 历史加载完成', {
     parsed: historical.length,
     retained: events.length,
   });
@@ -226,7 +226,7 @@ function injectDiagnosticSample(): RuntimeSnapshot {
     receivedAt: now,
     title: `[演示] ${parsed.title}`,
   });
-  console.info('[Wind Signal] 已注入诊断演示卡片', { source: parsed.source });
+  console.info('[KeelSonar] 已注入诊断演示卡片', { source: parsed.source });
   return snapshot();
 }
 
@@ -264,7 +264,7 @@ function applyHello(message: Record<string, unknown>): void {
           ? '听风页面当前是游客实时流，请在该页面重新登录'
           : '已接入听风页面实时流',
   });
-  console.info('[Wind Signal] 页面 WebSocket 握手完成', {
+  console.info('[KeelSonar] 页面 WebSocket 握手完成', {
     mode,
     watchCount:
       typeof message.watch_count === 'number' ? message.watch_count : null,
@@ -304,7 +304,7 @@ function handleSocketMessage(raw: string, countFrame = true): void {
     const event = parseWindEvent(message);
     if (!event) {
       patchConnection({ droppedEvents: connection.droppedEvents + 1 });
-      console.warn('[Wind Signal] 事件帧未能解析', {
+      console.warn('[KeelSonar] 事件帧未能解析', {
         type,
         eventKeys:
           record?.event && typeof record.event === 'object'
@@ -314,7 +314,7 @@ function handleSocketMessage(raw: string, countFrame = true): void {
       return;
     }
     patchConnection({ parsedEvents: connection.parsedEvents + 1 });
-    console.info('[Wind Signal] 事件已解析并送入侧边栏', {
+    console.info('[KeelSonar] 事件已解析并送入侧边栏', {
       id: event.id,
       source: event.source,
       action: event.action,
@@ -324,7 +324,7 @@ function handleSocketMessage(raw: string, countFrame = true): void {
     addEvent(event);
   } catch (error) {
     patchConnection({ droppedEvents: connection.droppedEvents + 1 });
-    console.error('[Wind Signal] 解析事件帧时发生异常', {
+    console.error('[KeelSonar] 解析事件帧时发生异常', {
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -411,7 +411,7 @@ function handleRelayMessage(
   }
 
   if (message.type === 'wind-relay:frame') {
-    console.log('[Wind Signal] 页面 WS ↓ 收到原始消息', message.raw);
+    console.log('[KeelSonar] 页面 WS ↓ 收到原始消息', message.raw);
     handleSocketMessage(message.raw);
     return;
   }
@@ -422,7 +422,7 @@ function handleRelayMessage(
   }
 
   if (message.type === 'wind-relay:history-error') {
-    console.warn('[Wind Signal] REST 历史加载失败，继续监听 WebSocket 增量', {
+    console.warn('[KeelSonar] REST 历史加载失败，继续监听 WebSocket 增量', {
       error: message.error,
     });
     patchConnection({ message: '历史事件加载失败，WebSocket 实时增量仍在监听' });
@@ -449,7 +449,7 @@ function handleRelayMessage(
       lastCloseCode: code,
       message: closeReason(code, message.reason ?? ''),
     });
-    console.warn('[Wind Signal] 页面 WebSocket 已关闭', {
+    console.warn('[KeelSonar] 页面 WebSocket 已关闭', {
       code,
       reason: message.reason || null,
     });

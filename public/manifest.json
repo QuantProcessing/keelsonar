@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Wind Signal",
-  "version": "0.5.1",
-  "description": "把听风实时预警直接路由到交易标的，并同步方程式新闻快讯，减少切站和搜索时间。",
+  "name": "KeelSonar",
+  "short_name": "KeelSonar",
+  "version": "0.6.0",
+  "description": "多源交易信号侧栏：听风实时预警与方程式快讯并排，一键打开交易标的。",
   "minimum_chrome_version": "116",
   "permissions": ["sidePanel", "storage", "tabs"],
   "host_permissions": [
@@ -30,7 +31,19 @@
     }
   ],
   "action": {
-    "default_title": "打开 Wind Signal"
+    "default_title": "打开 KeelSonar",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
   },
   "side_panel": {
     "default_path": "sidepanel.html"
